@@ -1,0 +1,248 @@
+---
+title: "Wonder Report"
+author: "Daniel Mermelstein"
+date: "1/25/2020"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(kableExtra)
+
+```
+
+```{r, echo=FALSE}
+kDataPath <- file.path("~/src/wonder-data-project","data")
+# load the data
+load(paste0(kDataPath,"/query_outputs.RData"))
+```
+
+## Part 1: Analysis
+
+I was asked to analyze the dataset provided and extract any interesting insights I came across. Since it was an event log for the job queue, I chose to focus on potential discrepancies between the queue's inflow and outflow. Thoughts and insights that arose from that angle are:
+
+  - Clients are submitting requests at times that don't fully line up with the times analysts are active on the platform, resulting in queue backlogs and longer response times for jobs submitted at night (not an issue if clients don't expect turnaround at those hours, but potentially an issue if clients are in different timezones or have different working hours)
+  - There are some analysts jumping on the queue at night but not significantly reducing the queue size
+  - Jobs are seemingly assigned to analysts only while they are active on the platform, so the queue size is very dependent on an analyst's chosen working hours
+
+**Recommendations:**
+
+  - Arrange the analyst workforce to operate in shifts, or look to recruit analysts in timezones where their working hours begin around when the queue regularly overwhelms the current analyst group
+
+### Dataset overview
+
+The log provided had **`r length(full_log$event_occurred)`** events covering **24** hours from **`r min(full_log$event_occurred)`** to **`r max(full_log$event_occurred)`**.
+
+The log also presented snapshots of the job queue at the time of each event so we took advantage of that to deduce the difference between jobs being created and picked up over the day. We're assuming timestamps are EST.
+
+There are events that happen to jobs created several days before. Those jobs are excluded from the analysis only where noted.
+
+### Incoming Requests
+
+The hourly trend for incoming requests looks to pick up in the morning, spikes around noon, and then holds steady for the afternoon and into the evening.
+
+```{r, echo=FALSE}
+ggplot(requests_created, aes(x=request_created_at_hour)) + 
+  geom_histogram(binwidth = 2, aes(y=..density..), colour="black", fill="black") +
+  geom_density(alpha=.2, fill="red") +
+  labs(title="Distribution of requests over the day",
+       x ="Hour of the Day", 
+       y = "")
+```
+
+The state of the queue reflects this, and with the below chart we can already infer the following:
+  - analysts are picking up requests that were left overnight
+  - analysts are available for the midday deluge of requests, work toward reducing them in the afternoon, but aren't able to keep up with the requests coming in late in the afternoon/evening
+  - requests created later in the day are potentially sitting in the queue overnight
+
+```{r, echo=FALSE}
+ggplot(queue_status, aes(x=snapshot_taken_at_hour, y=avg_total_jobs_available)) +
+  geom_bar(stat="identity") +
+  labs(title="Average total Jobs available",
+       x ="Time of Day", 
+       y = "")
+```
+
+On average there's only `r round(mean(response_rate$time_in_mins)*60,2)` seconds between first assignment and first response (job accepted or declined), so it seems likely that requests are only assigned to analysts somewhow deemed "active" on the platform. That  `r round(mean(response_rate$time_in_mins)*60,2)` seconds excludes requests that existed before the job log starts, since we can't assume it took "X" days for a request to be assigned just because we don't have data from that time frame.
+
+The fast response time would support the thought that there aren't enough analysts active and with bandwidth to take on requests later in the day (otherwise the response time would be higher, skewed by the times when analysts are overwhelmed).
+
+### Accepted Requests {.tabset .tabset-fade .tabset-pills}
+
+Now let's see if we can verify the above suspicions by looking at things from the angle of the analysts.
+
+The chart below shows what times during the day analysts are accepting job requests. By comparing side by side with what times requests are coming in we can identify the availability gap happening from about 3pm onwards. Note some assignments being picked up very late at night/overnight; for now we'll skip looking at these analysts but it raises the thought that some analysts might be in different time zones or work different hours than the rest.
+
+
+#### Requests Accepted
+```{r, echo=FALSE}
+ggplot(first_assignments, aes(x=event_occurred_at_hour)) + 
+  geom_histogram(binwidth = 2, aes(y=..density..), colour="black", fill="black") +
+  geom_density(alpha=.2, fill="red") +
+  labs(title="Distribution of accepted assignments over the day",
+       x ="Hour of the Day", 
+       y = "")
+```
+
+*_excludes jobs that were created before `r min(full_log$event_occurred)`_
+
+#### Requests Submitted
+```{r, echo=FALSE}
+ggplot(requests_created, aes(x=request_created_at_hour)) + 
+  geom_histogram(binwidth = 2, aes(y=..density..), colour="black", fill="black") +
+  geom_density(alpha=.2, fill="red") +
+  labs(title="Distribution of requests over the day",
+       x ="Hour of the Day", 
+       y = "")
+```
+
+*_includes jobs that were created before `r min(full_log$event_occurred)`_
+
+### A throwaway chart, but not terribly useful
+How long it takes for a request to first be accepted is a little iffy based on the scarcity of data here, but what we do have seems to follow the above patterns: faster to accept through the workday, rises again in the afternoon and is longest overnight:
+
+```{r, echo=FALSE}
+ggplot(subset(g_fassignments, avg_mins<300), aes(x=request_created_at_hour, y=avg_mins)) +
+  geom_line() +
+  labs(title="Time to first assignment",
+       x ="Hour Request is Created", 
+       y = "Average Minutes")
+```
+
+*_excludes jobs that were created before `r min(full_log$event_occurred)`, also excludes an outlier that took almost 400 minutes to be assigned_
+
+From what we've seen so far there seems to be a disconnect between requests coming in and being picked up. The question now is how to reduce time to first assignment for periods on the day that systematically aren't getting serviced as efficiently. This might be solved by expanding the timezones the analyst workforce covers (globalize or shifts).
+
+The above data also hints that Wonder's clients who request services don't line up with the timezones of our analysts OR that their working hours are significantly different. Either way, it would be good to try to match them more closely.
+
+### Status of the Queue {.tabset .tabset-fade .tabset-pills}
+
+Finally, we can look at the snapshots of the queue that have been attached to our event log. This will refute or reinforce the ideas presented above. We will assume the following definitions:
+
+  - **available analyst:** analyst active on the platform but no job assigned
+  - **busy analyst:** analyst with job assigned
+
+`Total Jobs` we've already seen, but now we're comparing that pattern to `Analysts Available` and `Analysts Busy`. Looking at the evening hours we see the reduction in total jobs, the low number of available analysts, but the increase in the number of busy analysts. We can therefore infer that there are a number of analysts that are logging on at night and picking up requests, thus reducing the queue (but not enough). We are assuming that analysts log off at night and retain their status of "Busy".
+
+#### Total Jobs
+```{r, echo=FALSE}
+ggplot(queue_status, aes(x=snapshot_taken_at_hour, y=avg_total_jobs_available)) +
+  geom_bar(stat="identity") +
+  labs(title="Average total Jobs available",
+       x ="Time of Day", 
+       y = "")
+# this mirrors when clients are submitting their requests, that the requests are being created later in the day and sitting in the queue until the morning
+```
+
+#### Analysts Available
+```{r, echo=FALSE}
+ggplot(queue_status, aes(x=snapshot_taken_at_hour, y=avg_analysts_available)) +
+  geom_bar(stat="identity") +
+  labs(title="Average analysts available",
+       x ="Time of Day", 
+       y = "")
+```
+
+#### Analysts Busy
+```{r, echo=FALSE}
+ggplot(queue_status, aes(x=snapshot_taken_at_hour, y=avg_analysts_occupied)) +
+  geom_bar(stat="identity") +
+  labs(title="Average analysts busy",
+       x ="Time of Day", 
+       y = "")
+```
+
+## Part 2: Data Modeling
+
+Based on the data set from Part 1, we should at least have the following dimension models added to a data warehouse for analytical purposes:
+
+  - Dimension tables:
+    - requests
+    - analysts
+    - clients
+
+See how these tables would relate to the log data here: <a href="https://app.sqldbm.com/PostgreSQL/Share/8qs8NvPdS-xCyCl4Tzqhy0GFrngIE8md_DYjF4jNYw0" target="_blank">link</a>
+
+Having the dimension tables in combination with log-level data would allow business users to ask questions like "Do clients from particular regions tend to submit jobs that require more back-and-forth between analysts?"
+
+My philosophy for business users is to provide data as aggregated as possible while retaining some measure of flexibility for further aggregation. These tables would allow business users to ask and answer the following questions:
+
+  - which clients are the most demanding (ie submitting most requests, submitting time-intensive requests)?
+    - the `clients` table would have some stats calculated on a daily basis, making it easy for a business user to learn how many jobs a particular client has submitted during their tenure
+  - how can we rank analysts by performance?
+    - based on the `quality_score_sourcing` and `quality_score_writing` fields from the log an analyst could have a `skill_level` calculated. This could be used to try to pair specific analysts with specific tasks based on estimated difficulty level
+  - which requests are the hardest/easiest?
+    - it looks like analyst submissions are scored, but if there were estimated difficulty scores for requests we could maybe improve throughput efficiency by pairing difficult requests with highly skilled analysts and easier requests with lower-level analysts
+
+
+As a separate thought, I would split out the state of the queue from the current state of a request. It seems logical that those would be different tables.
+
+## Part 3: SQL
+
+### Question
+**copied from the instructions**
+
+Assume we are using these two tables:
+
+Customers Table:
+```{r, echo=FALSE}
+kable(data.frame(customer_nbr = c(1,2,3,4), customer_name = c("Jim Brown","Jeff Gordon","Peter Green","Julie Peters")))%>%
+  kable_styling(full_width = F)
+
+```
+
+Orders Table:
+```{r, echo=FALSE}
+kable(data.frame(order_nbr = c(1,2,3,4,5), order_date = c("2008-10-01","2008-12-15","2009-01-02","2009-02-20","2009-03-05"), customer_nbr = c(1,2,1,3,1), order_amt = c(15.5,25.00,18.00,10.25,30.00)))%>%
+  kable_styling(full_width = F)
+
+```
+
+Imagine your product manager comes to you with a query that she’s not sure is correct. You do your best to guess what she was intending to query for and realize there are multiple issues.
+Please explain each issue and include a fixed query addressing all issues.
+
+```
+SELECT
+     customers.customer_name,
+     SUM(COALESCE(orders.order_amt, 0)) AS total_2009
+FROM
+     customers
+     LEFT OUTER JOIN orders ON (
+           customers.customer_nbr = orders.customer_nbr
+) WHERE
+     orders.order_date >= ‘20090101’
+GROUP BY
+     customers.customer_name
+```
+
+### Answer
+
+It looks like the PM is trying to query for the 2009 total order amount per customer. 
+
+The first issue I see is the `WHERE` clause. If the database is set to interpret date_id format into dates, that would be hampered by the fact that the PM has set `20090101` between single quotes and will be read as a string. If we assume the db _has not_ been set up to convert date_id to date, the issue is that the column values for `order_date` are in date format, so the PM's query will return no results. Also by selecting only dates equal to or greater than Jan 1, 2009, the query is at risk of returning any dates beyond the 2009 calendar year. The correct `WHERE` clause should be:
+```
+WHERE orders.order_date BETWEEN '2009-01-01' AND '2009-12-31'
+```
+
+The second issue is the aggregate function in the `SELECT` clause. Placing `COALESCE` inside the `SUM` function will cause the query to be slower and potentially not do anything if no records are returned. The following syntax will allow `COALESCE` to be called once at the end of the aggregation:
+```
+COALESCE(SUM(orders.order_amt), 0) AS total_2009
+```
+
+The parentheses being used in the `ON` statement shouldn't be a problem but aren't really necessary. I would also use table aliases to make the query more readable. The final query should look like this:
+
+```
+SELECT
+     c.customer_name,
+     COALESCE(SUM(o.order_amt), 0) AS total_2009
+FROM customers c
+LEFT OUTER JOIN orders o ON c.customer_nbr = o.customer_nbr
+WHERE
+     o.order_date BETWEEN '2009-01-01' AND '2009-12-31'
+GROUP BY
+     c.customer_name
+```
