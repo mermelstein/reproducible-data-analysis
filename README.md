@@ -21,6 +21,6 @@ Make sure you have
 1) an installation of RStudio with R >= 3.3
 2) any R packages loaded at the top of each R and RMD script
 
-Run these files in this order (leveraging the existing postgres instance that's already live):
+Clone this repo and run these files in this order (leveraging the existing postgres instance that's already live):
 1) [r/analysis.R](r/analysis.R)
 2) [wonder_report.Rmd](wonder_report.Rmd)
