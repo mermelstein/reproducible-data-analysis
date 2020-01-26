@@ -184,7 +184,7 @@ As a separate thought, I would split out the state of the queue from the current
 ## Part 3: SQL
 
 ### Question
-**copied from the instructions**
+**copied from the instructions** <a href="https://github.com/mermelstein/wonder-data-project/blob/master/project_instructions.pdf" target="_blank">link</a>
 
 Assume we are using these two tables:
 
