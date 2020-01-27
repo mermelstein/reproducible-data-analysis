@@ -25,7 +25,7 @@ res <- dbSendQuery(con, "
 -- look at when requests are created
 select distinct
   request
-, DATE_PART('hour', e.request_created_at) as request_created_at_hour
+, date_part('hour', e.request_created_at) as request_created_at_hour
 from events_original e
 ")
 requests_created <- dbFetch(res)
@@ -34,7 +34,7 @@ requests_created <- dbFetch(res)
 res <- dbSendQuery(con, "
 -- look at the state of the research queue over the day
 select 
-  DATE_PART('hour', e.event_occurred_at) as snapshot_taken_at_hour
+  date_part('hour', e.event_occurred_at) as snapshot_taken_at_hour
 , round(avg(total_jobs_available),2) as avg_total_jobs_available
 , round(avg(analysts_available),2) as avg_analysts_available
 , round(avg(analysts_occupied),2) as avg_analysts_occupied
@@ -60,8 +60,7 @@ with request_assigned as (
     e.request
   , min(e.event_occurred_at) as first_answered_time
   from events_original e
-  join request_assigned r 
-    on r.request = e.request
+  join request_assigned r on r.request = e.request
   where action <> 'Assigned Job'
   group by 1
 )
@@ -69,12 +68,11 @@ select
   r.request
 , r.first_assigment_time
 , ra.first_answered_time
-, (DATE_PART('day', ra.first_answered_time-r.first_assigment_time) * 24 + 
-               DATE_PART('hour', ra.first_answered_time-r.first_assigment_time)) * 60 +
-               DATE_PART('minute', ra.first_answered_time-r.first_assigment_time) as time_in_mins
+, (date_part('day', ra.first_answered_time-r.first_assigment_time) * 24 + 
+    date_part('hour', ra.first_answered_time-r.first_assigment_time)) * 60 +
+    date_part('minute', ra.first_answered_time-r.first_assigment_time) as time_in_mins
 from request_assigned r 
-join request_answered ra
-  on r.request = ra.request
+join request_answered ra on ra.request = r.request
 ")
 response_rate <- dbFetch(res)
 
@@ -87,16 +85,14 @@ with first_assignment as (
   , min(event_occurred_at) as first_assigment_time
   from events_original e
   where action = 'Accepted Job'
-  group by 
-    request
-  , request_created_at
+  group by 1, 2
 )
 select 
-  DATE_PART('hour', e.request_created_at) as request_created_at_hour
-, DATE_PART('hour', e.event_occurred_at) as event_occurred_at_hour
-, (DATE_PART('day', e.event_occurred_at-e.request_created_at) * 24 + 
-               DATE_PART('hour', e.event_occurred_at-e.request_created_at)) * 60 +
-               DATE_PART('minute', e.event_occurred_at-e.request_created_at) as time_in_mins
+  date_part('hour', e.request_created_at) as request_created_at_hour
+, date_part('hour', e.event_occurred_at) as event_occurred_at_hour
+, (date_part('day', e.event_occurred_at-e.request_created_at) * 24 + 
+    date_part('hour', e.event_occurred_at-e.request_created_at)) * 60 +
+    date_part('minute', e.event_occurred_at-e.request_created_at) as time_in_mins
 , e.analyst
 from events_original e
 join first_assignment fa
