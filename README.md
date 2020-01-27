@@ -5,8 +5,8 @@ The reader-friendly report is the file [wonder_report.html](wonder_report.html) 
 ## Steps I followed:
 
 1) spun up postgresql db in AWS
-2) ran "create_event_table.sql" file in a db client
-3) ran the file "insert_original_data.R" to insert CSV data into the new table
+2) ran [sql/create_event_table.sql](sql/create_event_table.sql) file in a db client
+3) ran the file [r/insert_original_data.R](r/insert_original_data.R) to insert CSV data into the new table
 4) explored the dataset using SQL and R, before settling on the type of analysis and queries to use
 
 Data transformation was done mostly in SQL, and the queries are in the file [r/analysis.R](r/analysis.R).
