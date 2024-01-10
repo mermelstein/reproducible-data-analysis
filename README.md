@@ -1,6 +1,6 @@
-# reproducible-data-analysis
+# Reproducible Data Analysis via Take-Home Test
 
-This is a simple example of what reproducible research can look like using R and R Markdown files. In production this can be set up in combination with a static website that points to html files and slide decks for access by a non-technical target audience.
+This is an old take-home test but is also a good example of what reproducible research can look like using R and R Markdown files.
 
 The reader-friendly example report is the file [wonder_report.html](wonder_report.html) which should be downloaded and then opened with any internet browser. HTML was chosen because it allowed for easy formatting and tabular chart presentation. The markdown file used to create that report is [wonder_report.Rmd](wonder_report.Rmd).
 
