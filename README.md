@@ -4,6 +4,8 @@ This is a simple example of what reproducible research can look like using R and
 
 The reader-friendly example report is the file [wonder_report.html](wonder_report.html) which should be downloaded and then opened with any internet browser. HTML was chosen because it allowed for easy formatting and tabular chart presentation. The markdown file used to create that report is [wonder_report.Rmd](wonder_report.Rmd).
 
+**January 2024 UPDATE:** for simpler SQL querying from R, consider using the [Snowquery](https://github.com/mermelstein/snowquery) package instead of DBI and odbc as seen in this repo.
+
 ## Steps to set this up:
 
 1) spin up postgresql db in AWS
